@@ -34,7 +34,9 @@ class HttpRequest
 		string path; //资源路径
 		string query_str; //传入参数
 		int recource_size; //申请资源的大小
-	
+        bool cgi;
+        int code;
+        int fd;
 	public:
 		HttpRequest()
 			:request_blank("\n")
@@ -42,6 +44,7 @@ class HttpRequest
 			,path(DEFAULT_PATH)
 			,query_str("")
 			,recource_size(0)
+      ,cgi(false)
 		{}
 		//设置请求行
 		string& GetRequestLine()	
@@ -57,7 +60,15 @@ class HttpRequest
 		string& GetRequestBody()	
 		{
 			return request_body;
-		}		
+		}	
+        int GetCode()
+        {
+            return code;
+        }
+        int GetFd()
+        {
+            return fd;
+        }
 		//判断请求方法是否合法
 		bool MethodIsLegal()	
 		{
@@ -81,7 +92,7 @@ class HttpRequest
 			vector<string> v;
 			Util::TransfromVector(request_header,v);
 			string key,value;
-			for(int i = 0;i < v.size();++i)
+			for(size_t i = 0;i < v.size();++i)
 			{
 				Util::MakeKV(v[i],key,value);
 				um.insert(make_pair(key,value));
@@ -110,6 +121,8 @@ class HttpRequest
 			if(path[path.size()-1]=='/')
 				uri+="index.html";
 			
+            fd = open(path.c_str(),O_RDONLY);
+
 			cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
 		}
 		//判断资源路径的合法性
@@ -118,6 +131,12 @@ class HttpRequest
 			struct stat st;
 			if(stat(path.c_str(),&st)==0)
 			{
+        //判断请求的资源是不是一个目录
+        if(S_ISDIR(st.st_mode))
+          path+="/index.html";
+        if((S_IXUSR & st.st_mode) || (S_IXGRP & st.st_mode) || (S_IXOTH & st.st_mode))
+          cgi = true;
+        //判断请求的资源是不是一个可执行文件
 				recource_size = st.st_size;
 				return true;
 			}
@@ -156,13 +175,50 @@ class HttpResponse
 {
 	private:
 		string response_line;
-		string response_head;
+		string response_header;
 		string response_blank;
 		string response_body;
+    private:
+        int fd;
 	public:
 		HttpResponse()
-			:response_blank("\n")
+			:response_blank("\r\n")
 		{}
+
+        string& GetResponseLine()
+        {
+            return response_line;
+        }
+        string& GetResponseHeader()
+        {
+            return response_header;
+        }
+        string& GetResponseBlank()
+        {
+            return  response_blank;
+        }
+        int GetFd()
+        {
+            return fd;
+        }
+        void MakeResponseLine(int code)
+        {
+            response_line = "HTTP/1.1";
+            response_line += " ";
+            response_line += Util::IntToString(code);
+            response_line += " ";
+            response_line += Util::GetStateCode(code);
+        }
+        void MakeResponseHeader()
+        {
+        }
+        void MakeResponse(HttpRequest* rq)
+        {
+            fd = rq->GetFd();
+            int code = rq->GetCode();
+            MakeResponseLine(code);
+            MakeResponseHeader();
+        }
 		~HttpResponse()
 		{}
 };
@@ -241,6 +297,17 @@ class EndPoint
 			}
 			cout<<"Request-Body: "<<body<<endl;
 		}
+    void SendResponse(HttpResponse* rsp)
+    {
+        int fd = rsp->GetFd();
+        string& response_line = rsp->GetResponseLine();
+        string& response_header = rsp->GetResponseHeader();
+        string& response_blank = rsp->GetResponseBlank();
+        send(sock,response_line.c_str(),response_line.size(),0);
+        send(sock,response_header.c_str(),response_header.size(),0);
+        send(sock,response_blank.c_str(),response_blank.size(),0);
+        sendfile(sock,fd,nullptr,);
+    }
 		~EndPoint()
 		{
 			if(sock>0)
@@ -280,6 +347,9 @@ class Entry
 
 			if(!rq->IsPathLegal())
 				goto end;
+
+            rsp->MakeResponse(rq);
+            ep->SendResponse(rsp);
 
 end:
 			delete p;

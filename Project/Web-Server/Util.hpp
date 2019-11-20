@@ -15,7 +15,7 @@ class Util
 		//将字符串中的字符全部转换成小写字符
 		static void StringToLower(std::string& s)
 		{
-
+			std::transform(s.begin(),s.end(),s.begin(),::tolower);
 		}
 		//将字符串中的字符全部转换成大写字符
 		static void StringToUpper(std::string& s)
@@ -30,6 +30,25 @@ class Util
 			ss>>ret;
 			return ret;
 		}
+        //整数转字符串
+        static std::string IntToString(int n)
+        {
+            std::stringstream ss;
+            ss<<n;
+            return ss.str();
+        }
+        static std::string GetStateCode(int code)
+        {
+            switch(code)
+            {
+                case 200:
+                    return "OK";
+                case 404:
+                    return "NOT FOUND";
+                default:
+                    return "UNKOWN";
+            }
+        }
 		//将字符串中的子串打散，然后保存在vector中
 		static void TransfromVector(std::string& s,std::vector<std::string>& v)
 		{
@@ -55,6 +74,7 @@ class Util
 			k = s.substr(0,pos);
 			v = s.substr(pos+2);
 		}
+        
 };
 
 
