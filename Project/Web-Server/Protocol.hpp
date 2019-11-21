@@ -12,12 +12,14 @@
 #include<sys/types.h>
 #include<sys/socket.h>
 #include<sys/stat.h>
+#include<sys/sendfile.h>
+#include<fcntl.h>
 #include<pthread.h>
 #include"Util.hpp"
 
 using namespace std;
 
-#define DEFAULT_PATH "./wwwroot"
+#define DEFAULT_PATH "./wwwRoot"
 
 class HttpRequest
 {
@@ -34,9 +36,9 @@ class HttpRequest
 		string path; //资源路径
 		string query_str; //传入参数
 		int recource_size; //申请资源的大小
-        bool cgi;
-        int code;
-        int fd;
+        bool cgi; //判断处理模式是否为CGI模式
+        string sfx; //请求资源后缀
+
 	public:
 		HttpRequest()
 			:request_blank("\n")
@@ -44,7 +46,7 @@ class HttpRequest
 			,path(DEFAULT_PATH)
 			,query_str("")
 			,recource_size(0)
-      ,cgi(false)
+            ,cgi(false)
 		{}
 		//设置请求行
 		string& GetRequestLine()	
@@ -61,13 +63,17 @@ class HttpRequest
 		{
 			return request_body;
 		}	
-        int GetCode()
+        string GetPath()
         {
-            return code;
+            return path;
         }
-        int GetFd()
+        int GetRecourceSize()
         {
-            return fd;
+            return recource_size;
+        }
+        string GetSuffix()
+        {
+            return sfx;
         }
 		//判断请求方法是否合法
 		bool MethodIsLegal()	
@@ -99,30 +105,32 @@ class HttpRequest
 			}
 		}
 		//解析URI（判断请求资源）
+		//三种情况：1.请求方法为POST，所以uri无参数
+		//			2.请求方法为GET，并且uri中含有“?”,有参数
+		//			3.请求方法为GET，uri中没有”?“，无参数
+        //同时判断是否使用CGI模式(带参需要)
 		void UriParse()
 		{
-			//三种情况：1.请求方法为POST，所以uri无参数
-			//			2.请求方法为GET，并且uri中含有“?”,有参数
-			//			3.请求方法为GET，uri中没有”?“，无参数
 			if(method == "POST")
-				path += uri; 
-			else
+            {
+                path += uri;
+                cgi = true;  
+            }
+            else
 			{
 				auto pos = uri.find('?');
 				if(pos!=string::npos)
 				{
 					path += uri.substr(0,pos);
 					query_str += uri.substr(pos+1);
+                    cgi = true;
 				}
 				else
 					path += uri;
 			}
 			//如果请求的是目录，将定位到该目录下的默认文件(index.html)
 			if(path[path.size()-1]=='/')
-				uri+="index.html";
-			
-            fd = open(path.c_str(),O_RDONLY);
-
+				path +="index.html";
 			cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
 		}
 		//判断资源路径的合法性
@@ -131,17 +139,30 @@ class HttpRequest
 			struct stat st;
 			if(stat(path.c_str(),&st)==0)
 			{
-        //判断请求的资源是不是一个目录
-        if(S_ISDIR(st.st_mode))
-          path+="/index.html";
-        if((S_IXUSR & st.st_mode) || (S_IXGRP & st.st_mode) || (S_IXOTH & st.st_mode))
-          cgi = true;
-        //判断请求的资源是不是一个可执行文件
-				recource_size = st.st_size;
+                //判断请求的资源是不是一个目录
+                if(S_ISDIR(st.st_mode))
+                    path+="/index.html";
+                
+                //判断请求的资源是不是一个可执行文件
+                if((S_IXUSR & st.st_mode) || (S_IXGRP & st.st_mode) || (S_IXOTH & st.st_mode))
+                    cgi = true;
+
+                //stat(path.c_str(),&st);
+			    recource_size = st.st_size;
+                
+                auto it = path.rfind('.');
+                if(it != string::npos)
+                    sfx = path.substr(it);
+                cout<<"后缀： "<<sfx<<endl;
+                cout<<"Request Size  = "<<recource_size <<endl;
 				return true;
 			}
 			return false;
 		}
+        bool IsCgi()
+        {
+            return cgi;
+        }
 		//逐条显示请求报头的条目
 		void ShowUnorderdMap()
 		{
@@ -179,7 +200,8 @@ class HttpResponse
 		string response_blank;
 		string response_body;
     private:
-        int fd;
+        int fd; //发送文件时的文件描述符(sendfile()函数需要使用)
+        int recource_size; //发送文件的大小
 	public:
 		HttpResponse()
 			:response_blank("\r\n")
@@ -201,6 +223,10 @@ class HttpResponse
         {
             return fd;
         }
+        int GetRecourceSize()
+        {
+            return recource_size;
+        }
         void MakeResponseLine(int code)
         {
             response_line = "HTTP/1.1";
@@ -208,16 +234,28 @@ class HttpResponse
             response_line += Util::IntToString(code);
             response_line += " ";
             response_line += Util::GetStateCode(code);
+            response_line += "\r\n";
         }
-        void MakeResponseHeader()
+        void MakeResponseHeader(vector<string>& v)
         {
+            auto it = v.begin();
+            for(;it != v.end();++it)
+            {
+                response_header += *it;
+                response_header += "\r\n";
+            }
         }
-        void MakeResponse(HttpRequest* rq)
+        void MakeResponse(HttpRequest* rq,int code)
         {
-            fd = rq->GetFd();
-            int code = rq->GetCode();
+            string path = rq->GetPath();
+            fd = open(path.c_str(),O_RDONLY);   //获得需要发送的文件的文件描述符
+            recource_size = rq->GetRecourceSize();  //获得需要发送的文件的大小
+            cout<<"Response Body Size = "<<recource_size<<endl;
+            vector<string> v;  //完善之后，用函数将此处封装；
+            v.push_back("Content-Type: text/html");
+
             MakeResponseLine(code);
-            MakeResponseHeader();
+            MakeResponseHeader(v);
         }
 		~HttpResponse()
 		{}
@@ -297,17 +335,19 @@ class EndPoint
 			}
 			cout<<"Request-Body: "<<body<<endl;
 		}
-    void SendResponse(HttpResponse* rsp)
-    {
-        int fd = rsp->GetFd();
-        string& response_line = rsp->GetResponseLine();
-        string& response_header = rsp->GetResponseHeader();
-        string& response_blank = rsp->GetResponseBlank();
-        send(sock,response_line.c_str(),response_line.size(),0);
-        send(sock,response_header.c_str(),response_header.size(),0);
-        send(sock,response_blank.c_str(),response_blank.size(),0);
-        sendfile(sock,fd,nullptr,);
-    }
+        void SendResponse(HttpResponse* rsp,bool cgi)
+        {
+            int fd = rsp->GetFd();
+            int recource_size = rsp->GetRecourceSize();
+            string& response_line = rsp->GetResponseLine();
+            string& response_header = rsp->GetResponseHeader();
+            string& response_blank = rsp->GetResponseBlank();
+
+            send(sock,response_line.c_str(),response_line.size(),0);
+            send(sock,response_header.c_str(),response_header.size(),0);
+            send(sock,response_blank.c_str(),response_blank.size(),0);
+            sendfile(sock,fd,nullptr,recource_size);
+        }
 		~EndPoint()
 		{
 			if(sock>0)
@@ -325,8 +365,10 @@ class Entry
 	public:
 		static void* HandlRequest(void* args)
 		{
+            int code = 200; //状态码
 			int *p = (int*)args;
 			int sock = *p;
+            bool cgi = true;
 			EndPoint* ep = new EndPoint(sock);
 			HttpRequest* rq = new HttpRequest();
 			HttpResponse* rsp = new HttpResponse();
@@ -335,7 +377,10 @@ class Entry
 			rq->RequestLineParse();		//解析请求行
 			
 			if(!rq->MethodIsLegal())	//判定请求方法是否合法
-				goto end;
+            {
+                code = 404;
+                goto end;
+            }
 
 			ep->RecvRequestHeader(rq);  //接收请求报头	
 			rq->RequestHeaderParse();
@@ -345,11 +390,22 @@ class Entry
 
 			rq->UriParse();	  //解析uri
 
-			if(!rq->IsPathLegal())
-				goto end;
+			if(!rq->IsPathLegal())  //判断请求资源的路径是否合法
+            {
+                code = 404;
+                goto end;
+            }
 
-            rsp->MakeResponse(rq);
-            ep->SendResponse(rsp);
+            //判断是否需要执行CGI模式
+            if(cgi == rq->IsCgi())
+            {
+                //执行CGI模式
+            }
+            else
+            {
+                rsp->MakeResponse(rq,code);
+                ep->SendResponse(rsp,cgi);
+            }
 
 end:
 			delete p;
