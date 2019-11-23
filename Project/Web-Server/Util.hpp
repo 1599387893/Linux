@@ -8,9 +8,13 @@
 #include<algorithm>
 #include<sstream>
 #include<vector>
+#include<unordered_map>
 
 class Util
 {
+    //private:
+       // static std::unordered_map<std::string,std::string> dict;
+
 	public:
 		//将字符串中的字符全部转换成小写字符
 		static void StringToLower(std::string& s)
@@ -74,14 +78,48 @@ class Util
 			k = s.substr(0,pos);
 			v = s.substr(pos+2);
 		}
-        
+        static std::string SuffixToCT(std::string& suffix) 
+        {
+           /* 
+            * std::string ret = "Content-Type: ";
+            auto pos = dict.find(suffix);
+            if(pos != dict.end())
+                ret+= pos->second;
+            else 
+                ret += ".text/html";
+            return ret;
+           */
+           std::string ret = "Content-Type: ";
+           if(".css"==suffix)
+               ret += "text/css";
+           if(".js"==suffix)
+               ret += "application/x-javascript";
+           if(".html"==suffix)
+               ret += "text/html";
+           if(".htm"==suffix)
+               ret += "text/html";
+           if(".jpg"==suffix)
+               ret += "application/x-jpg";
+           if(".gif"==suffix)
+               ret += "image/gif";
+           if(".png"==suffix)
+               ret += "application/x-png";
+           else 
+               ret += "text/html";    
+           return ret;
+        }
+};
+/*
+std::unordered_map<std::string,std::string> Util::dict{    
+        {".html","text/html"},
+        {".htm","text/html"},
+        {".css","text.css"},
+        {".js","pplication/x-javascript"},
+        {".jpg","pplication/x-jpg"},
+        {".gif","mage/gif"}
 };
 
-
-
-
-
-
+*/
 
 
 

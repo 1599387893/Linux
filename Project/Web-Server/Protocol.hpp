@@ -10,6 +10,7 @@
 #include<arpa/inet.h>
 #include<netinet/in.h>
 #include<sys/types.h>
+#include<sys/wait.h>
 #include<sys/socket.h>
 #include<sys/stat.h>
 #include<sys/sendfile.h>
@@ -47,6 +48,7 @@ class HttpRequest
 			,query_str("")
 			,recource_size(0)
             ,cgi(false)
+            ,sfx(".html")
 		{}
 		//设置请求行
 		string& GetRequestLine()	
@@ -74,6 +76,14 @@ class HttpRequest
         string GetSuffix()
         {
             return sfx;
+        }
+        string GetMethod()
+        {
+            return method;
+        }
+        string GetQueryStr()
+        {
+            return query_str;
         }
 		//判断请求方法是否合法
 		bool MethodIsLegal()	
@@ -151,8 +161,11 @@ class HttpRequest
 			    recource_size = st.st_size;
                 
                 auto it = path.rfind('.');
-                if(it != string::npos)
+                if(it == string::npos)
+                    sfx = ".html";
+                else 
                     sfx = path.substr(it);
+                
                 cout<<"后缀： "<<sfx<<endl;
                 cout<<"Request Size  = "<<recource_size <<endl;
 				return true;
@@ -202,6 +215,7 @@ class HttpResponse
     private:
         int fd; //发送文件时的文件描述符(sendfile()函数需要使用)
         int recource_size; //发送文件的大小
+        string suffix; //请求资源的后缀
 	public:
 		HttpResponse()
 			:response_blank("\r\n")
@@ -218,6 +232,10 @@ class HttpResponse
         string& GetResponseBlank()
         {
             return  response_blank;
+        }
+        string& GetResponseBody()
+        {
+            return response_body;
         }
         int GetFd()
         {
@@ -245,20 +263,39 @@ class HttpResponse
                 response_header += "\r\n";
             }
         }
-        void MakeResponse(HttpRequest* rq,int code)
+        void MakeResponse(HttpRequest* rq,int code,bool cgi)
         {
-            string path = rq->GetPath();
-            fd = open(path.c_str(),O_RDONLY);   //获得需要发送的文件的文件描述符
-            recource_size = rq->GetRecourceSize();  //获得需要发送的文件的大小
-            cout<<"Response Body Size = "<<recource_size<<endl;
-            vector<string> v;  //完善之后，用函数将此处封装；
-            v.push_back("Content-Type: text/html");
-
             MakeResponseLine(code);
+            vector<string> v;  //完善之后，用函数将此处封装；
+            string contenttype = Util::SuffixToCT(suffix);
+            string contentlength = "Content-Length: ";
+            if(cgi)
+            {
+                suffix = rq->GetSuffix();
+                recource_size = sizeof(response_body);
+                contentlength = "Content-Length: ";
+                contentlength += Util::IntToString(recource_size);
+            }
+            else
+            {
+                string path = rq->GetPath();
+                fd = open(path.c_str(),O_RDONLY);   //获得需要发送的文件的文件描述符
+                recource_size = rq->GetRecourceSize();  //获得需要发送的文件的大小
+                suffix = rq->GetSuffix(); //获取请求资源的后缀
+                contentlength = "Content-Length: ";
+                contentlength += Util::IntToString(recource_size);
+                
+            }
+            v.push_back(contentlength);
+            v.push_back(contenttype);
+
             MakeResponseHeader(v);
         }
 		~HttpResponse()
-		{}
+        {
+            if(fd!=-1)
+                close(fd);
+        }
 };
 
 
@@ -337,16 +374,25 @@ class EndPoint
 		}
         void SendResponse(HttpResponse* rsp,bool cgi)
         {
-            int fd = rsp->GetFd();
-            int recource_size = rsp->GetRecourceSize();
             string& response_line = rsp->GetResponseLine();
             string& response_header = rsp->GetResponseHeader();
             string& response_blank = rsp->GetResponseBlank();
-
             send(sock,response_line.c_str(),response_line.size(),0);
             send(sock,response_header.c_str(),response_header.size(),0);
             send(sock,response_blank.c_str(),response_blank.size(),0);
-            sendfile(sock,fd,nullptr,recource_size);
+            
+            if(cgi)
+            {
+                //执行cgi的发送方式
+                string& response_body = rsp->GetResponseBody();
+                send(sock,response_body.c_str(),response_body.size(),0);
+            }
+            else
+            {
+                int fd = rsp->GetFd();
+                int recource_size = rsp->GetRecourceSize();
+                sendfile(sock,fd,nullptr,recource_size);
+            }
         }
 		~EndPoint()
 		{
@@ -363,6 +409,62 @@ class EndPoint
 class Entry
 {
 	public:
+        static void ProcessCGI(HttpRequest* rq,HttpResponse* rsp)
+        {
+            cout<<"ProcessCGI--------------------------"<<endl;
+            //创建子进程
+            //创建管道，并且关闭无用的读写端
+            //子进程通过设置环境变量，将参数设置成环境变量，
+            //将子进程中的管道读写端的文件描述符进行重定向，
+            //子进程进行程序替换-------> 执行CGI程序，将CGI程序的结果输出到已经被重定向的标准输出，
+            //父进程将子进程创建完毕后，发送参数到子进程中，
+            //父进程接收子进程的运行结果，
+            //父进程等待子进程退出(waitpid())。
+            string path = rq->GetPath();
+            string method = rq->GetMethod();
+            string parameter = "PARAMETER=" ;
+            string param_size = "PARAMSIZE=";
+            if(method == "POST")
+                parameter += rq->GetRequestBody();
+            else if(method == "GET")
+                parameter += rq->GetQueryStr();
+            param_size += Util::IntToString(parameter.size()-10);
+
+            
+            int input[2];
+            int output[2];
+            pipe(input);
+            pipe(output);
+
+            pid_t id = fork();
+            if(id < 0)
+            {
+                //日志文件输入
+                cout<<"Fork Error"<<endl;
+            }
+            else if(id == 0)
+            {//child
+                close(input[1]);
+                close(output[0]);
+                dup2(input[0],0);
+                dup2(output[1],1);
+                putenv((char*)parameter.c_str()); //传入参数
+                putenv((char*)param_size.c_str()); //传入参数大小
+                cout<<"Start Exec()-------------------------"<<endl;
+                execl(path.c_str(),path.c_str(),nullptr);
+                exit(1);
+            }
+            else 
+            {//father
+                close(input[0]);
+                close(output[1]);
+                waitpid(id,nullptr,0);
+                string& rspBody = rsp->GetResponseBody();
+                char x;
+                while(read(output[0],&x,1)>0)
+                    rspBody.push_back(x);
+            }
+        }
 		static void* HandlRequest(void* args)
 		{
             int code = 200; //状态码
@@ -400,10 +502,13 @@ class Entry
             if(cgi == rq->IsCgi())
             {
                 //执行CGI模式
+                ProcessCGI(rq,rsp);
+                rsp->MakeResponse(rq,code,cgi); //????????
+                ep->SendResponse(rsp,cgi); //????????
             }
             else
             {
-                rsp->MakeResponse(rq,code);
+                rsp->MakeResponse(rq,code,cgi);
                 ep->SendResponse(rsp,cgi);
             }
 
