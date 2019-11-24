@@ -36,7 +36,7 @@ class Task
 			char buf[1024];
 			for(;;)
 			{
-				int s = recv(fd,buf,sizeof(buf-1),0);
+				int s = recv(fd,buf,sizeof(buf)-1,0);
 				if(s > 0)
 				{
 					buf[s] = 0;

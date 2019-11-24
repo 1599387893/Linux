@@ -272,7 +272,7 @@ class HttpResponse
             if(cgi)
             {
                 suffix = rq->GetSuffix();
-                recource_size = sizeof(response_body);
+                recource_size = response_body.size();
                 contentlength = "Content-Length: ";
                 contentlength += Util::IntToString(recource_size);
             }
@@ -396,6 +396,7 @@ class EndPoint
         }
 		~EndPoint()
 		{
+            cout<<"EndPoint():--------------------- "<<endl;
 			if(sock>0)
 				close(sock);
 		}
@@ -409,9 +410,8 @@ class EndPoint
 class Entry
 {
 	public:
-        static void ProcessCGI(HttpRequest* rq,HttpResponse* rsp)
+        static int ProcessCGI(HttpRequest* rq,HttpResponse* rsp)
         {
-            cout<<"ProcessCGI--------------------------"<<endl;
             //创建子进程
             //创建管道，并且关闭无用的读写端
             //子进程通过设置环境变量，将参数设置成环境变量，
@@ -450,7 +450,6 @@ class Entry
                 dup2(output[1],1);
                 putenv((char*)parameter.c_str()); //传入参数
                 putenv((char*)param_size.c_str()); //传入参数大小
-                cout<<"Start Exec()-------------------------"<<endl;
                 execl(path.c_str(),path.c_str(),nullptr);
                 exit(1);
             }
@@ -464,6 +463,7 @@ class Entry
                 while(read(output[0],&x,1)>0)
                     rspBody.push_back(x);
             }
+            return 200;
         }
 		static void* HandlRequest(void* args)
 		{
@@ -475,7 +475,7 @@ class Entry
 			HttpRequest* rq = new HttpRequest();
 			HttpResponse* rsp = new HttpResponse();
 			
-			ep->RecvRequestLine(rq);	//接收请求行
+			ep->RecvRequestLine(rq);	//接收请 求行
 			rq->RequestLineParse();		//解析请求行
 			
 			if(!rq->MethodIsLegal())	//判定请求方法是否合法
@@ -498,25 +498,38 @@ class Entry
                 goto end;
             }
 
+            cout<<"接收请求完毕："<<endl;
             //判断是否需要执行CGI模式
             if(cgi == rq->IsCgi())
             {
                 //执行CGI模式
-                ProcessCGI(rq,rsp);
-                rsp->MakeResponse(rq,code,cgi); //????????
-                ep->SendResponse(rsp,cgi); //????????
+                code = ProcessCGI(rq,rsp);
+                cout<<"CGI程序执行完毕！"<<endl;
+                rsp->MakeResponse(rq,code,cgi); 
+                cout<<"响应报文执行完毕！"<<endl;
+                ep->SendResponse(rsp,cgi); 
+                cout<<"响应发送执行完毕！"<<endl;
             }
             else
             {
                 rsp->MakeResponse(rq,code,cgi);
+                cout<<"响应报文执行完毕！"<<endl;
                 ep->SendResponse(rsp,cgi);
+                cout<<"响应发送执行完毕！"<<endl;
             }
 
 end:
+            //-----------------Bug----------------------
 			delete p;
+            //-----------------Bug----------------------
+            //同时，服务器存在长连接短链接不明确的问题
+            cout<<"Sock已删除"<<endl;
 			delete ep;
+            cout<<"EndPoint已删除"<<endl;
 			delete rq;
+            cout<<"HttpRequest已删除"<<endl;
 			delete rsp;
+            cout<<"HttpResponse已删除"<<endl;
 		}
 };
 

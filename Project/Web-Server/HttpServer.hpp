@@ -3,6 +3,7 @@
 
 #include"Protocol.hpp"
 #include"Util.hpp"
+#include"ThreadPoll.hpp"
 
 #define DEFAULT_PORT 8080
 #define BACKLOG 10
@@ -71,6 +72,7 @@ class HttpServer
 {
 	private:
 		Sock sock;
+        ThreadPool* tp;
 	public:
 		HttpServer(int _port = DEFAULT_PORT):sock(_port)
 		{}
@@ -79,6 +81,8 @@ class HttpServer
 			sock.Socket();
 			sock.Bind();
 			sock.Listen();
+            tp = new ThreadPool(8);
+            tp->InitThreadPool();
 		}
 		void Start()
 		{
@@ -88,14 +92,20 @@ class HttpServer
 				n_sock = sock.Accept();
 				if(n_sock >= 0)
 				{
-					int* so = new int(n_sock);
-					pthread_t tid;
-					pthread_create(&tid,nullptr,Entry::HandlRequest,(void*)so);
-				}
+					//int* so = new int(n_sock);
+					//pthread_t tid;
+					//pthread_create(&tid,nullptr,Entry::HandlRequest,(void*)so);
+				    
+                    Task t(n_sock,Entry::HandlRequest);
+                    tp->PushTask(t);
+                }
 			}
 		}
 		~HttpServer()
-		{}
+        {
+            if(tp)
+                delete tp;
+        }
 };
 
 
