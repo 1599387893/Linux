@@ -5,7 +5,7 @@
 #include<unistd.h>
 using namespace std;
 
-typedef void*(*handler_t)(void*);
+typedef void(*handler_t)(int);
 
 class Task
 {
@@ -17,9 +17,7 @@ class Task
         {}
         void Run()
         {
-            cout<<"Task start Run..."<<endl;
-            handler(&sock);
-            cout<<"Task Run finish...."<<endl;
+            handler(sock);
         }
         ~Task()
         {
@@ -100,3 +98,33 @@ class ThreadPool
             pthread_cond_destroy(&cond);
         }
 };
+
+//单例模式
+class Singleton
+{
+    typedef class ThreadPool ThreadPool;
+    private:
+        static ThreadPool* tp;
+        static pthread_mutex_t lock;
+    public:
+        Singleton()
+        {
+            pthread_mutex_init(&lock,nullptr);
+        }
+        static ThreadPool* GetInstance()
+        {
+            if(tp==nullptr)
+            {
+                pthread_mutex_lock(&lock);
+                if(tp == nullptr)
+                    tp = new ThreadPool(8);
+                pthread_mutex_unlock(&lock);
+            }
+            return tp;
+        }
+        ~Singleton()
+        {
+            pthread_mutex_destroy(&lock);
+        }
+};
+ThreadPool* Singleton::tp = nullptr;

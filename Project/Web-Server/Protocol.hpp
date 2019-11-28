@@ -21,6 +21,8 @@
 using namespace std;
 
 #define DEFAULT_PATH "./wwwRoot"
+#define NOTFOUND_PATH "./wwwRoot/404.html"
+#define NOTFOUND_SIZE 1579
 
 class HttpRequest
 {
@@ -98,9 +100,9 @@ class HttpRequest
 			stringstream ss(request_line);
 			ss>>method>>uri>>version; //自动分离
 			Util::StringToUpper(method); //将方法转换为大写
-			cout<<"method: "<<method<<endl;
-			cout<<"uri: "<<uri<<endl;
-			cout<<"verion: "<<version<<endl;
+			//cout<<"method: "<<method<<endl;
+			//cout<<"uri: "<<uri<<endl;
+			//cout<<"verion: "<<version<<endl;
 		}
 		//解析请求报头
 		void RequestHeaderParse()
@@ -141,7 +143,7 @@ class HttpRequest
 			//如果请求的是目录，将定位到该目录下的默认文件(index.html)
 			if(path[path.size()-1]=='/')
 				path +="index.html";
-			cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
+		//	cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
 		}
 		//判断资源路径的合法性
 		bool IsPathLegal()
@@ -166,8 +168,9 @@ class HttpRequest
                 else 
                     sfx = path.substr(it);
                 
-                cout<<"后缀： "<<sfx<<endl;
-                cout<<"Request Size  = "<<recource_size <<endl;
+               // cout<<"后缀： "<<sfx<<endl;
+               // cout<<"Request Size  = "<<recource_size <<endl;
+               // cout<<"IsPathLegal path: "<<path<<endl;
 				return true;
 			}
 			return false;
@@ -267,24 +270,34 @@ class HttpResponse
         {
             MakeResponseLine(code);
             vector<string> v;  //完善之后，用函数将此处封装；
-            string contenttype = Util::SuffixToCT(suffix);
+            string contenttype;
             string contentlength = "Content-Length: ";
             if(cgi)
             {
                 suffix = rq->GetSuffix();
+                contenttype = Util::SuffixToCT(suffix);
                 recource_size = response_body.size();
-                contentlength = "Content-Length: ";
                 contentlength += Util::IntToString(recource_size);
             }
             else
             {
-                string path = rq->GetPath();
+                string path;
+                if(code==200)
+                {
+                    path = rq->GetPath();
+                    recource_size = rq->GetRecourceSize();  //获得需要发送的文件的大小
+                    suffix = rq->GetSuffix(); //获取请求资源的后缀
+                    contenttype = Util::SuffixToCT(suffix);
+                    contentlength += Util::IntToString(recource_size);
+                }
+                else 
+                {
+                    path = NOTFOUND_PATH;
+                    recource_size = NOTFOUND_SIZE;
+                    contenttype = "Content-Type: text/html";
+                    contentlength += Util::IntToString(recource_size);
+                }
                 fd = open(path.c_str(),O_RDONLY);   //获得需要发送的文件的文件描述符
-                recource_size = rq->GetRecourceSize();  //获得需要发送的文件的大小
-                suffix = rq->GetSuffix(); //获取请求资源的后缀
-                contentlength = "Content-Length: ";
-                contentlength += Util::IntToString(recource_size);
-                
             }
             v.push_back(contentlength);
             v.push_back(contenttype);
@@ -355,7 +368,7 @@ class EndPoint
 				header+=temp;
 				temp.clear();
 			}
-			cout<<"Request-Header: "<<header<<endl;
+			//cout<<"Request-Header: "<<header<<endl;
 		}
 		//接收请求正文
 		void RecvRequestBody(HttpRequest* rq)
@@ -370,7 +383,7 @@ class EndPoint
 				if(recv(sock,&c,1,0)>0)
 					body.push_back(c);
 			}
-			cout<<"Request-Body: "<<body<<endl;
+			//cout<<"Request-Body: "<<body<<endl;
 		}
         void SendResponse(HttpResponse* rsp,bool cgi)
         {
@@ -394,9 +407,19 @@ class EndPoint
                 sendfile(sock,fd,nullptr,recource_size);
             }
         }
-		~EndPoint()
+        void SendNotFound(HttpResponse* rsp,HttpRequest* rq,int code)
+        {
+            string buf;
+            while(RecvLine(buf))
+            {
+                if(buf=="\n")
+                    break;
+            }
+            rsp->MakeResponse(rq,code,false);
+            SendResponse(rsp,false);
+        }
+        ~EndPoint()
 		{
-            cout<<"EndPoint():--------------------- "<<endl;
 			if(sock>0)
 				close(sock);
 		}
@@ -465,11 +488,9 @@ class Entry
             }
             return 200;
         }
-		static void* HandlRequest(void* args)
+		static void HandlRequest(int sock)
 		{
             int code = 200; //状态码
-			int *p = (int*)args;
-			int sock = *p;
             bool cgi = true;
 			EndPoint* ep = new EndPoint(sock);
 			HttpRequest* rq = new HttpRequest();
@@ -481,6 +502,7 @@ class Entry
 			if(!rq->MethodIsLegal())	//判定请求方法是否合法
             {
                 code = 404;
+                cout<<"Error MethodIsLegal()"<<endl;
                 goto end;
             }
 
@@ -495,16 +517,23 @@ class Entry
 			if(!rq->IsPathLegal())  //判断请求资源的路径是否合法
             {
                 code = 404;
+                cout<<"Error IsPathLegal()"<<endl;
                 goto end;
             }
 
             cout<<"接收请求完毕："<<endl;
             //判断是否需要执行CGI模式
-            if(cgi == rq->IsCgi())
+            cgi = rq->IsCgi();
+            if(cgi)
             {
                 //执行CGI模式
                 code = ProcessCGI(rq,rsp);
                 cout<<"CGI程序执行完毕！"<<endl;
+                if(code != 200)
+                {
+                    cout<<"CGI error"<<endl;
+                    goto end;
+                }
                 rsp->MakeResponse(rq,code,cgi); 
                 cout<<"响应报文执行完毕！"<<endl;
                 ep->SendResponse(rsp,cgi); 
@@ -517,19 +546,21 @@ class Entry
                 ep->SendResponse(rsp,cgi);
                 cout<<"响应发送执行完毕！"<<endl;
             }
-
+            
 end:
+            cout<<"Code : "<<code<<endl;
+            if(code != 200)
+            {
+                cout<<"Ready To Send 404"<<endl;
+                ep->SendNotFound(rsp,rq,code);
+            }
             //-----------------Bug----------------------
-			delete p;
+			//delete p; //这里不用delete的原因就是，在传入是没有new的过程。
             //-----------------Bug----------------------
             //同时，服务器存在长连接短链接不明确的问题
-            cout<<"Sock已删除"<<endl;
 			delete ep;
-            cout<<"EndPoint已删除"<<endl;
 			delete rq;
-            cout<<"HttpRequest已删除"<<endl;
 			delete rsp;
-            cout<<"HttpResponse已删除"<<endl;
 		}
 };
 

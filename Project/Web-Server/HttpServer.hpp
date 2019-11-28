@@ -72,17 +72,16 @@ class HttpServer
 {
 	private:
 		Sock sock;
-        ThreadPool* tp;
+        ThreadPool tp;
 	public:
-		HttpServer(int _port = DEFAULT_PORT):sock(_port)
+		HttpServer(int _port = DEFAULT_PORT):sock(_port),tp(8)
 		{}
 		void InitHttpServer()
 		{
 			sock.Socket();
 			sock.Bind();
 			sock.Listen();
-            tp = new ThreadPool(8);
-            tp->InitThreadPool();
+            tp.InitThreadPool();
 		}
 		void Start()
 		{
@@ -97,15 +96,12 @@ class HttpServer
 					//pthread_create(&tid,nullptr,Entry::HandlRequest,(void*)so);
 				    
                     Task t(n_sock,Entry::HandlRequest);
-                    tp->PushTask(t);
+                    tp.PushTask(t);
                 }
 			}
 		}
 		~HttpServer()
-        {
-            if(tp)
-                delete tp;
-        }
+        {}
 };
 
 

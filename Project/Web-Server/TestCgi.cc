@@ -29,12 +29,16 @@ int main()
     num1 = Util::StringToInt(data1);
     num2 = Util::StringToInt(data2);
 
+    cout<<"<html><head><title>CGI Result:</title></head><body>";
 
     cout<<num1<<" + "<<num2<<" = "<<num1+num2<<endl;
+    cout<<"<br>";
     cout<<num1<<" - "<<num2<<" = "<<num1-num2<<endl;
+    cout<<"<br>";
     cout<<num1<<" * "<<num2<<" = "<<num1*num2<<endl;
+    cout<<"<br>";
     cout<<num1<<" / "<<num2<<" = "<<num1/num2<<endl;
     
-    //cout<<"</body></html>";
+    cout<<"</body></html>";
     return 0;
 }
