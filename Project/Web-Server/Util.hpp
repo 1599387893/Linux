@@ -92,17 +92,17 @@ class Util
            std::string ret = "Content-Type: ";
            if(".css"==suffix)
                ret += "text/css";
-           if(".js"==suffix)
+           else if(".js"==suffix)
                ret += "application/x-javascript";
-           if(".html"==suffix)
+           else if(".html"==suffix)
                ret += "text/html";
-           if(".htm"==suffix)
+           else if(".htm"==suffix)
                ret += "text/html";
-           if(".jpg"==suffix)
+           else if(".jpg"==suffix)
                ret += "application/x-jpg";
-           if(".gif"==suffix)
+           else if(".gif"==suffix)
                ret += "image/gif";
-           if(".png"==suffix)
+           else if(".png"==suffix)
                ret += "application/x-png";
            else 
                ret += "text/html";    

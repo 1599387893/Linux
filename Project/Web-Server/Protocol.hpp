@@ -41,7 +41,7 @@ class HttpRequest
 		int recource_size; //申请资源的大小
         bool cgi; //判断处理模式是否为CGI模式
         string sfx; //请求资源后缀
-
+        bool done; //请求是否读完的标志
 	public:
 		HttpRequest()
 			:request_blank("\n")
@@ -51,6 +51,7 @@ class HttpRequest
 			,recource_size(0)
             ,cgi(false)
             ,sfx(".html")
+            ,done(false)
 		{}
 		//设置请求行
 		string& GetRequestLine()	
@@ -94,6 +95,14 @@ class HttpRequest
 				return false;
 			return true;
 		}
+        void SetDone(bool _done)
+        {
+            _done = done;
+        }
+        bool GetDone()
+        {
+            return done;
+        }
 		//解析请求行
 		void RequestLineParse()		
 		{
@@ -272,6 +281,7 @@ class HttpResponse
             vector<string> v;  //完善之后，用函数将此处封装；
             string contenttype;
             string contentlength = "Content-Length: ";
+            string connection = "Connection: close"; //短链接
             if(cgi)
             {
                 suffix = rq->GetSuffix();
@@ -299,8 +309,11 @@ class HttpResponse
                 }
                 fd = open(path.c_str(),O_RDONLY);   //获得需要发送的文件的文件描述符
             }
+            cout<<"ContentLenth: "<<contentlength <<endl;
+            cout<<"ContentType: "<<contenttype<<endl;
             v.push_back(contentlength);
             v.push_back(contenttype);
+            v.push_back(connection);
 
             MakeResponseHeader(v);
         }
@@ -409,12 +422,13 @@ class EndPoint
         }
         void SendNotFound(HttpResponse* rsp,HttpRequest* rq,int code)
         {
-            string buf;
-            while(RecvLine(buf))
+            if(rq->GetDone())//继续接收请求
             {
-                if(buf=="\n")
-                    break;
+                RecvRequestHeader(rq);
+                if(rq->IsNeedRecv())
+                    RecvRequestBody(rq);
             }
+            rq->SetDone(true);
             rsp->MakeResponse(rq,code,false);
             SendResponse(rsp,false);
         }
@@ -443,6 +457,7 @@ class Entry
             //父进程将子进程创建完毕后，发送参数到子进程中，
             //父进程接收子进程的运行结果，
             //父进程等待子进程退出(waitpid())。
+            int code = 200;
             string path = rq->GetPath();
             string method = rq->GetMethod();
             string parameter = "PARAMETER=" ;
@@ -452,7 +467,6 @@ class Entry
             else if(method == "GET")
                 parameter += rq->GetQueryStr();
             param_size += Util::IntToString(parameter.size()-10);
-
             
             int input[2];
             int output[2];
@@ -464,6 +478,7 @@ class Entry
             {
                 //日志文件输入
                 cout<<"Fork Error"<<endl;
+                code = 500;
             }
             else if(id == 0)
             {//child
@@ -486,8 +501,10 @@ class Entry
                 while(read(output[0],&x,1)>0)
                     rspBody.push_back(x);
             }
-            return 200;
+            return code;
         }
+
+        
 		static void HandlRequest(int sock)
 		{
             int code = 200; //状态码
@@ -501,7 +518,7 @@ class Entry
 			
 			if(!rq->MethodIsLegal())	//判定请求方法是否合法
             {
-                code = 404;
+                code = 400;
                 cout<<"Error MethodIsLegal()"<<endl;
                 goto end;
             }
@@ -512,6 +529,7 @@ class Entry
 			if(rq->IsNeedRecv())	//判断是否需要继续读(读请求正文)
 				ep->RecvRequestBody(rq);
 
+            rq->SetDone(true);
 			rq->UriParse();	  //解析uri
 
 			if(!rq->IsPathLegal())  //判断请求资源的路径是否合法
@@ -554,10 +572,7 @@ end:
                 cout<<"Ready To Send 404"<<endl;
                 ep->SendNotFound(rsp,rq,code);
             }
-            //-----------------Bug----------------------
-			//delete p; //这里不用delete的原因就是，在传入是没有new的过程。
-            //-----------------Bug----------------------
-            //同时，服务器存在长连接短链接不明确的问题
+
 			delete ep;
 			delete rq;
 			delete rsp;

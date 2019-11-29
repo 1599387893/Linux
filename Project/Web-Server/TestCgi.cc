@@ -18,7 +18,8 @@ int main()
     //1.通过环境变量接收
     param = getenv("PARAMETER");
     //2.通过父进程write
-    
+
+
     auto pos = param.find('&');
     data1 = param.substr(0,pos);
     data2 = param.substr(pos+1);
@@ -30,7 +31,7 @@ int main()
     num2 = Util::StringToInt(data2);
 
     cout<<"<html><head><title>CGI Result:</title></head><body>";
-
+    cout<<"<br>";
     cout<<num1<<" + "<<num2<<" = "<<num1+num2<<endl;
     cout<<"<br>";
     cout<<num1<<" - "<<num2<<" = "<<num1-num2<<endl;

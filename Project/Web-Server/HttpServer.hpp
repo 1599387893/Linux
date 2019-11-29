@@ -14,7 +14,7 @@ class Sock
 		int sock;
 		int port;
  	public:
-		Sock(int _port = DEFAULT_PORT):port(_port),sock(-1)
+		Sock(int _port = DEFAULT_PORT):sock(-1),port(_port)
 		{}
 		void Socket()
 		{
@@ -75,7 +75,9 @@ class HttpServer
         ThreadPool tp;
 	public:
 		HttpServer(int _port = DEFAULT_PORT):sock(_port),tp(8)
-		{}
+        {
+            //tp = Singleton::GetInstance();
+        }
 		void InitHttpServer()
 		{
 			sock.Socket();
@@ -101,7 +103,8 @@ class HttpServer
 			}
 		}
 		~HttpServer()
-        {}
+        {
+        }
 };
 
 
