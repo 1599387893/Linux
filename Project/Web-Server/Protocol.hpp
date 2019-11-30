@@ -152,7 +152,7 @@ class HttpRequest
 			//如果请求的是目录，将定位到该目录下的默认文件(index.html)
 			if(path[path.size()-1]=='/')
 				path +="index.html";
-		//	cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
+			//cout<<"URI解析结果："<<"Path : "<<path<<" Quer_str:"<<query_str<<endl;
 		}
 		//判断资源路径的合法性
 		bool IsPathLegal()
@@ -366,7 +366,7 @@ class EndPoint
 		//接收请求行
 		void RecvRequestLine(HttpRequest* rq)
 		{
-			RecvLine(rq->GetRequestLine());		
+            RecvLine(rq->GetRequestLine());
 		}
 		//接收请求报头
 		void RecvRequestHeader(HttpRequest* rq)
@@ -518,6 +518,7 @@ class Entry
 			
 			if(!rq->MethodIsLegal())	//判定请求方法是否合法
             {
+               cout<<"错误方法为："<<rq->GetMethod()<<endl; 
                 code = 400;
                 cout<<"Error MethodIsLegal()"<<endl;
                 goto end;
@@ -571,6 +572,7 @@ end:
             {
                 cout<<"Ready To Send 404"<<endl;
                 ep->SendNotFound(rsp,rq,code);
+                cout<<"404 页面发送完毕！"<<endl;
             }
 
 			delete ep;

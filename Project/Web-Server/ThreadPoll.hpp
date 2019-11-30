@@ -102,30 +102,25 @@ class ThreadPool
 //单例模式
 class Singleton
 {
-    typedef class ThreadPool ThreadPool;
     private:
         static ThreadPool* tp;
-        static pthread_mutex_t lock1;
+        static pthread_mutex_t lock;
     public:
-        Singleton()
-        {
-            pthread_mutex_init(&lock1,nullptr);
-        }
         static ThreadPool* GetInstance()
         {
             if(tp==nullptr)
             {
-                pthread_mutex_lock(&lock1);
+                pthread_mutex_lock(&lock);
                 if(tp == nullptr)
+                {
                     tp = new ThreadPool(8);
-                pthread_mutex_unlock(&lock1);
+                    tp->InitThreadPool();
+                }
+                pthread_mutex_unlock(&lock);
             }
             return tp;
         }
-        ~Singleton()
-        {
-            pthread_mutex_destroy(&lock1);
-        }
 };
-ThreadPool* Singleton::tp = nullptr;
 
+ThreadPool* Singleton::tp = nullptr;
+pthread_mutex_t Singleton::lock = PTHREAD_MUTEX_INITIALIZER;

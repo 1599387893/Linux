@@ -72,21 +72,24 @@ class HttpServer
 {
 	private:
 		Sock sock;
-        ThreadPool tp;
+        ThreadPool* tp;
 	public:
-		HttpServer(int _port = DEFAULT_PORT):sock(_port),tp(8)
+		HttpServer(int _port = DEFAULT_PORT):sock(_port)
         {
-            //tp = Singleton::GetInstance();
+            tp = Singleton::GetInstance();
         }
 		void InitHttpServer()
 		{
 			sock.Socket();
 			sock.Bind();
 			sock.Listen();
-            tp.InitThreadPool();
+            //tp.InitThreadPool();
 		}
 		void Start()
 		{
+            //忽略SIGPIPE信号，防止服务器在未完成响应时，客户端关闭连接而导致异常
+            signal(SIGPIPE,SIG_IGN);
+
 			int n_sock;
 			for(;;)
 			{
@@ -98,12 +101,13 @@ class HttpServer
 					//pthread_create(&tid,nullptr,Entry::HandlRequest,(void*)so);
 				    
                     Task t(n_sock,Entry::HandlRequest);
-                    tp.PushTask(t);
+                    tp->PushTask(t);
                 }
 			}
 		}
 		~HttpServer()
         {
+            delete tp;
         }
 };
 
